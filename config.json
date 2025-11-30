@@ -1,0 +1,19 @@
+{
+  "annotated_root": "/export/fhome/maed04/Cross_validation/Annotated",
+  "excel": "/export/fhome/maed04/Cross_validation/HP_WSI-CoordAllAnnotatedPatches.xlsx",
+  "checkpoint": "/export/fhome/maed04/Codi_nana_results/ae_prof_paper_hsv/ae_best.pt",
+  "out_dir": "/export/fhome/maed04/last_dance/results_system1/",
+  "img_size": 256,
+  "k": 10,
+  "batch_size": 128,
+  "num_workers": 4,
+  "metric": "hue_red_weighted",
+  "q": 0.999,
+  "lam": 8.0,
+  "sat_thr": 0.2,
+  "val_thr": 0.2,
+  "thr_method": "youden",
+  "seed": 42,
+  "patient_agg": "p95",
+  "topk": 10
+}
