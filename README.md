@@ -1,168 +1,218 @@
-# Helicobacter pylori Detection (WSI → patches)
-## Sistema 1 (Autoencoder) + Sistema 2 (Triplet + MIL + Attention)
 
-Projecte de detecció d’**Helicobacter pylori** en histologia (WSI) treballant a nivell de **patch**.  
-El pipeline està dividit en dos sistemes:
+# Detecció d’*Helicobacter pylori* en WSI (pipeline per patches)  
+## Sistema 1 (Autoencoder) + Sistema 2 (Triplet + MIL amb Attention)
 
-- **Sistema 1 (AE / detecció per anomalia)**: entrenem un *Autoencoder* només amb **patches de pacients sans**. Quan el model veu patrons compatibles amb H. pylori (anomalia), acostuma a **reconstruir pitjor** → obtenim un **score** a partir de l’error de reconstrucció.
-- **Sistema 2 (Triplet + MIL + Attention)**: partim dels latents del Sistema 1 (`z` per patch), els fem més discriminatius amb **Triplet Loss** (`z → z'`) i fem classificació **a nivell pacient** amb **MIL + Attention**.
+Projecte de detecció d’*H. pylori* a partir de *patches* d’imatges d’histopatologia, dividit en dos blocs:
+
+- **Sistema 1 (AE / detecció per anomalia):** entrenem un **Autoencoder (AE)** només amb pacients sans i usem l’error de reconstrucció (RGB + component HSV/Hue) per definir un *score* i un **threshold** via ROC.
+- **Sistema 2 (Triplet + MIL + Attention):** fem servir l’espai latent del Sistema 1 (*z* per patch), el transformem a embeddings més discriminatius amb **Triplet loss** (*z → z’*) i finalment entrenem un **model MIL amb Attention** per classificar el pacient.
 
 **Assignatura:** *Mètodes Avançats de Processament de Senyal, Imatge i Vídeo (UAB)*  
 **Informe:** `Hyplori_informe.pdf` (explicació completa + resultats)
 
 ---
 
-## 1) Contingut del repositori (fitxers principals)
+## Contingut del repositori (fitxers clau)
 
-### Sistema 1 — Autoencoder + threshold
+### Sistema 1 — Autoencoder + Threshold (ROC)
 - `train_sys1_ae_paper_hsv.py`  
-  Entrena el **teacher AutoEncoderCNN** només amb *healthy*.  
-  Loss:
-  - `loss = MSE_RGB + hsv_weight * MSE_H (Hue)` *(o HSV complet segons config)*
-
+  Entrenament del **teacher AutoEncoderCNN** només amb *healthy patches*, amb loss: `MSE_RGB + w * MSE_Hue/HSV`.
+- `sbatch_sys1_train_ae_paper_hsv.sh`  
+  Script Slurm per entrenar l’AE al clúster.
 - `system1_reconstruct_grids_ae_best.py`  
-  Genera **grids de reconstrucció** (healthy vs unhealthy) per inspecció visual.
-
-- `extract_latent_by_patient.py`  
-  Extreu l’espai latent `z` **per pacient** i el guarda en `.npz`.
-
+  Genera graelles de reconstrucció **healthy vs unhealthy** per inspecció visual.
+- `extract_latent_by_patient.py` i `train_ae_lat.py`  
+  Extracció i guardat de latents per pacient (`.npz`).
 - `system1_threshold.py`  
-  Ajust de **threshold (tau)** amb **ROC + KFold** usant **Annotated + Excel**.
+  Càlcul de *scores* i selecció de **threshold** amb ROC (output: `ROC_PATCH.png`, `ROC_PATIENT.png`, `kfold_summary.csv`, `all_scores.csv`).
+- Outputs ja pujats:
+  - `ROC_PATCH.png`
+  - `ROC_PATIENT.png`
+  - `all_scores.csv`
+  - `kfold_summary.csv`
 
-### Sistema 2 — Triplet + MIL + Attention
+### Sistema 2 — Triplet (z → z’) + MIL amb Attention
 - `mlp_triplet.py`  
-  Entrena una MLP amb **Triplet Loss** per transformar **`z → z'`** i desa `z'` per pacient en `.npz`.
-
+  Entrena una MLP amb **TripletLoss** per obtenir embeddings `z'` més separables.
+- `mlp_triplet.sh`  
+  Script Slurm per entrenar la MLP Triplet.
 - `attention.py`  
-  Entrena **MIL + Attention** a nivell pacient usant `z'` com a “bag” de patches.
-
+  Entrena el model **MIL + Attention** a nivell de pacient sobre els `z'`.
+- `sbatch_attention.sh`  
+  Script Slurm per entrenar el model d’Attention.
 - `test_kfold_attention.py`  
-  Test amb **KFold** del Sistema 2 (ROC/AUC, mètriques i figures).
-
-### Fitxers de suport
-- `AttentionUnits.py` (unitat d’atenció + classificador)
-- `datasets.py` (TripletDataset)
-- `triplet_loss.py` (TripletLoss)
-
-### Scripts SLURM
-- `sbatch_sys1_train_ae_paper_hsv.sh`
-- `mlp_triplet.sh`
-- `sbatch_attention.sh`
+  Test K-Fold del model MIL amb mètriques i figures.
+- Fitxers de suport:
+  - `AttentionUnits.py`
+  - `datasets.py`
+  - `triplet_loss.py`
+- Outputs ja pujats:
+  - `roc_kfold.png`
+  - `confusion_global.png`
+  - `config.json`
 
 ---
 
-## 2) Dades i rutes (clúster)
+## Estructura de dades (paths que fem servir)
 
-### Dataset separats (train AE)
-- **Healthy (train)**  
-  `/export/fhome/maed04/Cross_validation/Separated/healthy/<PATIENT_SECTION>/*.png`
+**Patches separats (ja preparats):**
+- Healthy: `/export/fhome/maed04/Cross_validation/Separated/healthy/<PATIENT_SECTION>/*.png`
+- Unhealthy: `/export/fhome/maed04/Cross_validation/Separated/unhealthy/<PATIENT_SECTION>/*.png` *(si aplica)*
 
-### Annotated + Excel (threshold / validació)
-- **Annotated**  
-  `/export/fhome/maed/HelicoDataSet/CrossValidation/Annotated/`
-- **Excel labels**  
-  `/export/fhome/maed/HelicoDataSet/HP_WSI-CoordAllAnnotatedPatches.xlsx`
+**Annotated (per validació/ROC/threshold):**
+- `/export/fhome/maed/HelicoDataSet/CrossValidation/Annotated/`
+- Excel etiquetes: `/export/fhome/maed/HelicoDataSet/HP_WSI-CoordAllAnnotatedPatches.xlsx`
 
----
+**Models i runs (segons scripts):**
+- Sistema 1 AE: `~/Codi_nana_results/...`
+- Sistema 2 (triplet + attention): `/export/fhome/maed04/sys2_nana/runs/...`
 
-## 3) Outputs (on es guarda tot)
-
-### Sistema 1 — Model entrenat
-- **AE best checkpoint**  
-  `/export/fhome/maed04/Codi_nana_results/ae_prof_paper_hsv/ae_best.pt`
-
-### Sistema 2 — Runs
-Tot el que és Triplet / Attention es guarda a:
-- `/export/fhome/maed04/sys2_nana/runs/`
-
-Exemples típics:
-- **Triplet MLP (z')**
-  - `.../runs/triplet_mlp_YYYYMMDD_HHMMSS/zprime/healthy/<PACIENT>.npz`
-  - `.../runs/triplet_mlp_YYYYMMDD_HHMMSS/zprime/unhealthy/<PACIENT>.npz`
-
-- **Attention MIL (checkpoints)**
-  - `.../runs/attention_mil_YYYYMMDD_HHMMSS/checkpoints/attention_best.pt`
+> Nota: els scripts estan pensats per executar-se en entorn HPC amb Slurm, però també es poden executar manualment si les rutes existeixen.
 
 ---
 
-## 4) Com executar-ho (pipeline recomanat)
+## Com executar el pipeline (ordre recomanat)
 
 ### 0) Activar entorn
 ```bash
 source /export/fhome/maed04/MyVirtualEnv/bin/activate
 ````
 
-### 1) Entrenar Autoencoder (Sistema 1)
+---
+
+## 1) Sistema 1 — Entrenar Autoencoder (AE)
+
+Opció HPC (Slurm):
 
 ```bash
 sbatch sbatch_sys1_train_ae_paper_hsv.sh
 ```
 
-### 2) Visualitzar reconstruccions (healthy vs unhealthy)
+Opció manual:
+
+```bash
+python -u train_sys1_ae_paper_hsv.py
+```
+
+---
+
+## 2) Sistema 1 — Visualitzar reconstruccions (healthy vs unhealthy)
 
 ```bash
 python -u system1_reconstruct_grids_ae_best.py
 ```
 
-### 3) Extreure latents `z` per pacient
+---
+
+## 3) Sistema 1 — Extreure latents *z* per pacient
 
 ```bash
 python -u extract_latent_by_patient.py
 ```
 
-### 4) Ajustar threshold (tau) amb ROC/KFold
+*(Si tens una variant/runner d’extracció: `train_ae_lat.py`)*
+
+---
+
+## 4) Sistema 1 — Calcular score + threshold amb ROC (K-Fold)
 
 ```bash
 python -u system1_threshold.py
 ```
 
-### 5) Entrenar Triplet MLP i generar `z'` (Sistema 2)
+Això genera (entre d’altres):
+
+* `ROC_PATCH.png`, `ROC_PATIENT.png`
+* `all_scores.csv`, `kfold_summary.csv`
+
+---
+
+## 5) Sistema 2 — Triplet: entrenar MLP (z → z’)
+
+Opció HPC:
 
 ```bash
 sbatch mlp_triplet.sh
 ```
 
-### 6) Entrenar MIL + Attention (Sistema 2)
+Opció manual:
+
+```bash
+python -u mlp_triplet.py
+```
+
+Sortida típica:
+
+* carpeta de run a `/export/fhome/maed04/sys2_nana/runs/triplet_mlp_*/`
+* `zprime/healthy` i `zprime/unhealthy` amb `.npz` per pacient
+
+---
+
+## 6) Sistema 2 — Entrenar MIL + Attention sobre z’
+
+Opció HPC:
 
 ```bash
 sbatch sbatch_attention.sh
 ```
 
-### 7) Test KFold del Sistema 2
+Opció manual:
+
+```bash
+python -u attention.py
+```
+
+Sortida típica:
+
+* `.../runs/attention_mil_*/checkpoints/attention_best.pt`
+
+---
+
+## 7) Sistema 2 — Test (K-Fold) + figures
 
 ```bash
 python -u test_kfold_attention.py
 ```
 
----
+Genera:
 
-## 5) Notes importants
-
-### AE vs VAE
-
-Aquest projecte fa servir un **Autoencoder (AE)**, **NO** un VAE.
-Un VAE tindria `mu`, `logvar` i sampling/reparametrization. Aquí no.
-
-### Per què `.npz`?
-
-Fem servir `.npz` perquè:
-
-* és compacte (`np.savez_compressed`)
-* és ràpid de carregar
-* permet guardar `z`/`z'` i opcionalment `paths`
-
-### Per què NO posar threshold fix 0.5?
-
-0.5 només té sentit si les probabilitats estan calibrades i la distribució és estable.
-Aquí triem `tau` amb **Youden** o **F1-optimal**, dins d’un **KFold** per robustesa.
+* `roc_kfold.png`
+* `confusion_global.png`
+* (i outputs per fold si ho tens activat)
 
 ---
 
-## 6) Entrega (què s’entrega)
+## Resultats (què mirar ràpid)
 
-* **Codi**: scripts Python + sbatch
-* **Informe**: `Hyplori_informe.pdf`
-* **Resultats**: figures ROC / matrius de confusió / CSVs generats pels scripts
+### Sistema 1
 
-```
-```
+* `ROC_PATCH.png` i `ROC_PATIENT.png` per veure separació per patch i per pacient
+* `kfold_summary.csv` per resum de mètriques per fold
+* `all_scores.csv` per auditar exemples i score per mostra
+
+### Sistema 2
+
+* `roc_kfold.png` (ROC mitjana K-Fold)
+* `confusion_global.png` (matriu confusió global del test)
+
+---
+
+## Detalls importants / decisions del disseny
+
+* **És un AE (no un VAE):** l’arquitectura `AutoEncoderCNN` no té mostreig probabilístic ni KL-divergence, per tant és un **Autoencoder clàssic**.
+* **Per què HSV/Hue:** la component Hue ajuda a capturar canvis relacionats amb el “senyal vermell” (tinció) d’*H. pylori*. Per això al Sistema 1 fem servir una loss que combina RGB amb HSV/Hue.
+* **Triplet abans d’Attention:** el Triplet força que patches similars quedin a prop i diferents lluny a l’espai embedding (`z’`), i això acostuma a ajudar que l’Attention tingui una representació més “neteja” a nivell pacient.
+
+---
+
+## Notes d’execució (HPC / Slurm)
+
+* Outputs `.out/.err` habitualment a: `/export/fhome/maed04/Sortida/`
+* Si un script dóna “No such file”, assegura que el `cd` del `.sh` apunta al directori correcte i que el nom del `.py` coincideix.
+
+---
+
+
+## Autors
+
+Adrián Fuster, Marc Cases, Álvaro Bello, Namanmahi Kumar
